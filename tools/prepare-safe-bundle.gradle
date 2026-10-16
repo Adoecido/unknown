@@ -1,0 +1,18 @@
+allprojects {
+    afterEvaluate {
+        def bundleDirectory = layout.buildDirectory.dir('bundle-config-party')
+        tasks.register('prepareSafeDllBundle', Sync) {
+            from(layout.buildDirectory.file('native/dist/IllIIlIl.dll'))
+            from('tools/BUNDLE-README.txt') { rename { 'README.txt' } }
+            into(bundleDirectory)
+        }
+        tasks.register('zipSafeDllBundle', Zip) {
+            dependsOn tasks.named('prepareSafeDllBundle')
+            from(bundleDirectory)
+            archiveFileName = 'SonyVegas-config-party-bundle.zip'
+            destinationDirectory = layout.buildDirectory
+            preserveFileTimestamps = false
+            reproducibleFileOrder = true
+        }
+    }
+}

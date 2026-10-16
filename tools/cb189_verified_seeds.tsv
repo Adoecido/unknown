@@ -1,0 +1,31 @@
+# Reviewed against the 2026-09-03 CheatBreaker 1.8.9.patch; see mapping-update.json.
+# Patch SHA-256: 1dbf331ec95bddf06b42e082ed49e4280b3cfabb071271e9aa494acdec4a2225
+# GlStateManager/BooleanState: static GL call sites, state caches and enable/disable.
+bfl	IlIIlIllIlllIllIIlIlllIII
+bfl$c	IllllIIIIlIlIIlIlllIIlIIl
+# Frustum, S16 look, Color cache, RelMove and LookMove structural proofs.
+bic	IlIIIIIIlllIIlllIIIIIIlll
+gv$c	IlllIlIlIlIlllIIIlIIllIll
+!bfl$e	IlllIlllllIIllIIIIIlIIllI
+!gv$a	IlllIlIlIlIIIllIlIlIlIllI
+gv$b	IlllIIIlIIlllIIlIIIlllIlI
+# Members retained only when the old/new and vanilla/new matches agree.
+!FD	bfl	t	Lbfl$e;	IllllllllllIIIIlllIIlIIIl
+MD	bfl	d	()V	IlIIllIIIllllIlllIIIIllIl
+MD	bfl	c	()V	IlllIIlIlIIIlIIlllIlIIlII
+MD	bfl	l	()V	IlllllIIIIllIllIllllIIIII
+MD	bfl	k	()V	IlIlIIlllIlIlllllIIIllIlI
+MD	bfl	a	(F)V	IlIIllIIIIlIIllIIIllllIIl
+# BlendState's only BooleanState-typed field.
+FD	bfl$b	a	Lbfl$c;	IlIlllllIlIllIlllIlllIIII
+FD	avf	a	I	IllIIIlIllllIllIIlllIIlll
+FD	avf	b	I	IllIIIlllllIIlIIIlllIIIlI
+FD	bfk	i	Lbni;	IlIlIIlIIIlIIIlllIIIIIllI
+MD	bfk	a	(FI)V	IlIIllIIIIlIIllIIIllllIIl
+MD	bfk	f	(F)V	IlIllllIIllIIIIlIIllIlIIl
+MD	bet	k	()Ljy;	IlIIllIIIIlIIllIIIllllIIl
+MD	avn	a	(Ljava/lang/String;FFIZ)I	IlIIIIlllIlIIlllllIlllIlI
+MD	bhx	a	(Z)V	IlIIllIIIIlIIllIIIllllIIl
+MD	bda	a	(Lbew;Lbdb;Lzx;Lcj;Lcq;Laui;)Z	IlIIllIIIIlIIllIIIllllIIl
+MD	wn	b	(Lpk;)V	IlIIllIIIIlIIllIIIllllIIl
+MD	wn	c	(Lpk;)V	IlIIIIlllIlIIlllllIlllIlI

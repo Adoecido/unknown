@@ -1,0 +1,14 @@
+# Re-derived for patch SHA-256 1dbf331ec95bddf06b42e082ed49e4280b3cfabb071271e9aa494acdec4a2225.
+# GlStateManager: aligned static GL call sites and cache fields.
+bfl	IlIIlIllIlllIllIIlIlllIII
+# BooleanState: (I)V constructor, cached boolean, GL11.glEnable/glDisable in (Z)V.
+bfl$c	IllllIIIIlIlIIlIlllIIlIIl
+# Frustum: ICamera, clipping helper constructor, three coordinates and AABB test.
+bic	IlIIIIIIlllIIlllIIIIIIlll
+# S16PacketEntityLook: Entity packet superclass and unique (IBBZ)V constructor.
+gv$c	IlllIlIlIlIlllIIIlIIllIll
+# Color: four-float glColor4f cache, not OptiFine integer GlBlendState.
+bfl$e	IlllIlllllIIllIIIIIlIIllI
+# RelMove and LookMove: (IBBBZ)V versus (IBBBBBZ)V.
+gv$a	IlllIlIlIlIIIllIlIlIlIllI
+gv$b	IlllIIIlIIlllIIlIIIlllIlI

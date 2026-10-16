@@ -1,0 +1,27 @@
+[Unit]
+Description=Analyze queued CheatBreaker patches
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=sonyvegas
+Group=sonyvegas
+Environment=SONYVEGAS_DATA=/var/lib/sonyvegas
+Environment=SONYVEGAS_MAPPING_ROOT=/var/lib/sonyvegas/mapping-worker
+ExecStart=/opt/sonyvegas/run_mapping_queue.sh
+TimeoutStartSec=46min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sonyvegas
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

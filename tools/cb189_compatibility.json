@@ -1,0 +1,25 @@
+{
+  "patch_sha256": "4289f8aa46a2e45aa8740c8b22a926b1da4219b5407fb30d92deae4e5f9dcac8",
+  "members": [
+    {
+      "match": [
+        "MD",
+        "avn",
+        "a",
+        "(Ljava/lang/String;III)I",
+        "IlIIllllllIlIIlIIIIIlllll",
+        "IlIllIIIlIIIIIIllllIllIII",
+        "(Ljava/lang/String;FFI)I"
+      ],
+      "adapter": "MFontRenderer registers float coordinates and boxes x/y as Float on CheatBreaker 1.8.9. Bytecode delegates to drawString(String,FFIZ) with shadow=false; integer-coordinate overload is absent."
+    }
+  ],
+  "unavailable": [
+    {
+      "source": "net/minecraft/client/gui/GuiIngame/renderScoreboard",
+      "srg": "func_180475_a",
+      "descriptor": "(Lnet/minecraft/scoreboard/ScoreObjective;Lnet/minecraft/client/gui/ScaledResolution;)V",
+      "reason": "Vanilla method/signature is absent from the current GuiIngame class. The existing ScoreboardObjectiveRenderMappingTask skips an unresolved hook. No substitute was guessed."
+    }
+  ]
+}

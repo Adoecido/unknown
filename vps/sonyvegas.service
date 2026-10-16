@@ -1,0 +1,44 @@
+[Unit]
+Description=SonyVegas control API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sonyvegas
+Group=sonyvegas
+WorkingDirectory=/opt/sonyvegas
+EnvironmentFile=/etc/sonyvegas/backend.env
+Environment=SONYVEGAS_DATA_DIR=/var/lib/sonyvegas
+Environment=SONYVEGAS_HOST=127.0.0.1
+Environment=SONYVEGAS_PORT=8081
+ExecStart=/usr/bin/python3 /opt/sonyvegas/sonyvegas_server.py
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+ReadWritePaths=/var/lib/sonyvegas
+ReadOnlyPaths=/opt/sonyvegas /etc/sonyvegas
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+{
+  "name": "discord-support-moderation-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bot de tickets e moderação para Discord.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node scripts/deploy-commands.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "discord.js": "^14.19.3",
+    "dotenv": "^16.5.0",
+    "mineflayer": "^4.20.1"
+  }
+}

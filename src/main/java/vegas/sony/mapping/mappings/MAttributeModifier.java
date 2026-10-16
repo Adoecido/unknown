@@ -1,0 +1,56 @@
+package vegas.sony.mapping.mappings;
+
+import vegas.sony.mapping.MappedClasses;
+import vegas.sony.mapping.Mapping;
+import vegas.sony.mapping.MappingField;
+import vegas.sony.mapping.MappingMethod;
+import vegas.sony.mapping.mappings.MIAttributeInstance;
+import vegas.sony.ui.click.component.GuiComponent;
+import vegas.sony.wrapper.impl.ForgeVersion;
+import java.util.UUID;
+
+public class MAttributeModifier
+extends Mapping {
+    private MappingField idField;
+    private MappingMethod getIdMethod;
+    private final MappingMethod getAmountMethod;
+
+    public static UUID getUuid(MAttributeModifier mapping, Object attributeModifier) {
+        return mapping.readUuid(attributeModifier);
+    }
+
+
+    private Object readResourceLocation(Object attributeModifier) {
+        return this.idField.getObject(attributeModifier);
+    }
+
+    private UUID readUuid(Object attributeModifier) {
+        return (UUID)this.getIdMethod.invokeObject(attributeModifier, new Object[0]);
+    }
+
+    public double getAmount(Object attributeModifier) {
+        return this.getAmountMethod.invokeDouble(attributeModifier, new Object[0]);
+    }
+
+    public static Object getResourceLocation(MAttributeModifier mapping, Object attributeModifier) {
+        return mapping.readResourceLocation(attributeModifier);
+    }
+
+    public MAttributeModifier() {
+        this(MIAttributeInstance.B());
+    }
+
+    private MAttributeModifier(String mappingState) {
+        super(MappedClasses.z_);
+        if (mappingState != null && ForgeVersion.MC_1_21_0.d()) {
+            this.idField = this.J("id", true, MappedClasses.zC);
+        } else {
+            this.getIdMethod = this.Y("getID", true, UUID.class, new Class[]{});
+        }
+        this.getAmountMethod = this.Y("getAmount", true, Double.TYPE, new Class[]{});
+        if (GuiComponent.getLegacyComponentState() == null) {
+            MIAttributeInstance.k("QRcZV");
+        }
+    }
+}
+

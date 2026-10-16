@@ -1,0 +1,1315 @@
+buildscript {
+    repositories { mavenCentral() }
+    dependencies {
+        classpath 'org.ow2.asm:asm:9.7.1'
+        classpath 'org.ow2.asm:asm-commons:9.7.1'
+    }
+}
+
+plugins {
+    id 'java'
+    id 'idea'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'lIlIlIll'
+version = '1.0'
+
+def javaOnlyBuild = providers.gradleProperty('javaOnlyBuild').map { it.toBoolean() }.getOrElse(false)
+def bootstrapMapFile = file(javaOnlyBuild ? "$buildDir/obfuscation/bootstrap-classes.txt" : "$rootDir/native/renamed_classes.txt")
+
+def useLegacyJava8Compiler = providers.gradleProperty('legacyJava8Compiler')
+        .map { it.toBoolean() }.getOrElse(false)
+
+base {
+    archivesName = 'lIIlIIlI'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(useLegacyJava8Compiler ? 8 : 17)
+    }
+}
+
+sourceSets {
+    main {
+        java.srcDirs = ['src/main/java']
+        resources.srcDirs = ['src/main/resources']
+    }
+    obfuscate {
+        java.srcDirs = ['src/obfuscate/java']
+    }
+}
+
+tasks.named('processResources') {
+    def panelJavascript = file('src/main/panel/app.js')
+    def panelStylesheet = file('src/main/panel/app.css')
+    inputs.files(panelJavascript, panelStylesheet)
+    doLast {
+        [[panelJavascript, '144'], [panelStylesheet, '145']].each { entry ->
+            def output = file("$buildDir/resources/main/assets/lIlIIlIl/${entry[1]}")
+            output.parentFile.mkdirs()
+            output.withOutputStream { destination ->
+                new java.util.zip.GZIPOutputStream(destination).withCloseable { gzip ->
+                    gzip.write(entry[0].bytes)
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.javassist:javassist:3.29.2-GA'
+    implementation 'org.ow2.asm:asm:9.7.1'
+    implementation 'org.ow2.asm:asm-tree:9.7.1'
+    implementation 'org.ow2.asm:asm-analysis:9.7.1'
+    implementation 'org.ow2.asm:asm-util:9.7.1'
+    implementation 'org.ow2.asm:asm-commons:9.7.1'
+    implementation 'com.google.guava:guava:17.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'com.google.zxing:core:3.5.4'
+    implementation 'io.netty:netty-all:4.0.23.Final'
+    implementation 'commons-io:commons-io:2.4'
+    implementation 'org.lwjgl.lwjgl:lwjgl:2.9.3'
+    implementation 'org.lwjgl.lwjgl:lwjgl_util:2.9.3'
+    compileOnly 'org.jetbrains:annotations:24.1.0'
+    obfuscateImplementation 'org.ow2.asm:asm:9.7.1'
+    obfuscateImplementation 'org.ow2.asm:asm-commons:9.7.1'
+}
+
+configurations.configureEach {
+    withDependencies { declared ->
+        def localFiles = declared.findAll {
+            it instanceof org.gradle.api.artifacts.SelfResolvingDependency
+        }
+        if (!localFiles.isEmpty()) {
+            throw new GradleException(
+                    "local file dependencies are forbidden; use repository coordinates: ${localFiles}")
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    if (useLegacyJava8Compiler) {
+        // Java 8 has no --release flag. Source/target 8 is equivalent for this
+        // dependency set and avoids spawning a newer worker JVM on legacy hosts.
+        sourceCompatibility = '1.8'
+        targetCompatibility = '1.8'
+    } else {
+        // Compiled with a Java 17 compiler; product default targets 17, pass
+        // -PtargetRelease=8 to emit Java 8 bytecode for the MC 1.8.9 injection path.
+        options.release = (project.findProperty('targetRelease') ?: '17') as int
+    }
+    options.compilerArgs += ['-Xmaxerrs', '10000', '-Xdiags:verbose']
+}
+
+// Probe tests use sun.misc.Unsafe to instantiate isolated mapping fixtures.
+// javac's --release view intentionally hides that JDK-internal compatibility
+// API, so compile tests against the running JDK while the product classes keep
+// their requested --release (8 for the injection payload).
+tasks.named('compileTestJava') {
+    if (!useLegacyJava8Compiler) {
+        options.release = null
+        sourceCompatibility = '17'
+        targetCompatibility = '17'
+    }
+}
+
+idea {
+    module {
+        sourceDirs += file('src/main/java')
+        resourceDirs += file('src/main/resources')
+    }
+}
+
+tasks.register('verifyRiseMotionAccessors') {
+    group = 'verification'
+    description = 'Prevents Rise motion code from writing the legacy lastTickPosX field by mistake.'
+    def guardedSources = files(
+            'src/main/java/vegas/sony/module/rise/velocity/RiseVelocityMMCMode.java')
+    inputs.files(guardedSources)
+    doLast {
+        def offenders = guardedSources.files.findAll { source ->
+            source.exists() && source.getText('UTF-8') =~ /\bplayer\s*\.\s*C\s*\(/
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException('Rise motion code must use setMotionX; C(double) writes lastTickPosX: '
+                    + offenders*.name.join(', '))
+        }
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn(tasks.named('verifyRiseMotionAccessors'))
+}
+
+tasks.register('encryptLanguageResources') {
+    group = 'injection'
+    description = 'Encrypts language resources before they are packaged in the injection payload.'
+    dependsOn(tasks.named('processResources'))
+    def sourceLanguages = fileTree('src/main/resources/resources') {
+        include '*.properties.txt'
+    }
+    def outputDirectory = file("$buildDir/resources/main/resources")
+    inputs.files(sourceLanguages)
+    outputs.files(sourceLanguages.files.collect { new File(outputDirectory, it.name) })
+    outputs.upToDateWhen { false }
+    doLast {
+        outputDirectory.mkdirs()
+        def random = new java.security.SecureRandom()
+        sourceLanguages.files.each { source ->
+            byte[] plain = source.bytes
+            int key = random.nextInt()
+            byte[] packed = new byte[plain.length + 8]
+            packed[0] = (byte)'S'
+            packed[1] = (byte)'V'
+            packed[2] = (byte)'P'
+            packed[3] = (byte)'2'
+            packed[4] = (byte)(key >>> 24)
+            packed[5] = (byte)(key >>> 16)
+            packed[6] = (byte)(key >>> 8)
+            packed[7] = (byte)key
+            for (int i = 0; i < plain.length; ++i) {
+                int keyByte
+                switch (i & 3) {
+                    case 0: keyByte = key >>> 24 & 0xff; break
+                    case 1: keyByte = key >>> 16 & 0xff; break
+                    case 2: keyByte = key >>> 8 & 0xff; break
+                    default: keyByte = key & 0xff
+                }
+                packed[i + 8] = (byte)((plain[i] & 0xff) ^ keyByte ^ (i * 131 + 0x5d & 0xff))
+            }
+            new File(outputDirectory, source.name).bytes = packed
+            java.util.Arrays.fill(plain, (byte)0)
+        }
+        println("encrypted language resources: ${sourceLanguages.files.size()}")
+    }
+}
+
+tasks.register('obfuscateStrings') {
+    group = 'injection'
+    description = 'Encrypts string literals in compiled .class files.'
+    // Renaming changes the class output paths, so every payload build must start
+    // from a clean class directory or stale renamed classes would be repackaged.
+    dependsOn('cleanPayloadClasses', tasks.named('classes'), tasks.named('encryptLanguageResources'))
+    def classesDir = sourceSets.main.java.classesDirectory.get().asFile
+    inputs.dir(classesDir)
+    outputs.dir(classesDir)
+    doLast {
+        def marker = ' //$'
+        // UI-only text can be split with invisible Minecraft formatting resets.
+        // It renders identically, but the visible sentence is never materialized
+        // as one contiguous java.lang.String in the target JVM.
+        def displayMarker = ' //$ui'
+        // Escape hatch: a literal ending with //$raw keeps its plaintext value
+        // in the constant pool (the marker itself is stripped). Avoid: every
+        // raw literal is readable in a strings dump of the target process.
+        def rawMarker = ' //$raw'
+        def strClass = 'vegas/sony/utils/Str'
+        int transformed = 0
+        int literals = 0
+        int blanketLiterals = 0
+        int rawLiterals = 0
+        int segmentedModuleNames = 0
+        int segmentedDisplayStrings = 0
+        int staticFieldInits = 0
+        def random = new java.util.Random()
+        // Pure helpers (never touch ASM visitors): safe to call from anywhere.
+        def segmentUi = { String text ->
+            StringBuilder segmented = new StringBuilder(text.length() * 3)
+            for (int offset = 0; offset < text.length();) {
+                int codePoint = text.codePointAt(offset)
+                if (segmented.length() > 0) {
+                    segmented.append('\u00a7').append('r')
+                }
+                segmented.appendCodePoint(codePoint)
+                offset += Character.charCount(codePoint)
+            }
+            return segmented.toString()
+        }
+        def packSlices = { String plain, int key ->
+            int sliceBytes = 24576
+            def slices = []
+            int sliceStart = 0
+            while (sliceStart < plain.length()) {
+                int sliceEnd = sliceStart
+                int sliceLen = 0
+                while (sliceEnd < plain.length()) {
+                    int codePoint = plain.codePointAt(sliceEnd)
+                    int pointBytes = codePoint < 0x80 ? 1
+                            : codePoint < 0x800 ? 2
+                            : codePoint < 0x10000 ? 3 : 4
+                    if (sliceLen + pointBytes > sliceBytes) break
+                    sliceLen += pointBytes
+                    sliceEnd += Character.charCount(codePoint)
+                }
+                if (sliceEnd == sliceStart) sliceEnd = sliceStart + 1
+                slices << plain.substring(sliceStart, sliceEnd)
+                sliceStart = sliceEnd
+            }
+            def packed = []
+            for (int sliceIndex = 0; sliceIndex < slices.size(); sliceIndex++) {
+                byte[] cipher = slices[sliceIndex].getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8)
+                int k0 = (key >>> 24) & 0xFF
+                int k1 = (key >>> 16) & 0xFF
+                int k2 = (key >>> 8) & 0xFF
+                int k3 = key & 0xFF
+                for (int i = 0; i < cipher.length; i++) {
+                    switch (i & 3) {
+                        case 0: cipher[i] = (byte)(cipher[i] ^ k0); break
+                        case 1: cipher[i] = (byte)(cipher[i] ^ k1); break
+                        case 2: cipher[i] = (byte)(cipher[i] ^ k2); break
+                        case 3: cipher[i] = (byte)(cipher[i] ^ k3); break
+                    }
+                }
+                packed << java.util.Base64.getEncoder().encodeToString(cipher)
+            }
+            return packed
+        }
+        def emitDecrypted = { target, String plain, int key ->
+            def packedSlices = packSlices(plain, key)
+            if (packedSlices.size() == 1) {
+                target.visitLdcInsn(packedSlices[0])
+                target.visitLdcInsn(key)
+                target.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESTATIC,
+                        strClass, 'dec', '(Ljava/lang/String;I)Ljava/lang/String;', false)
+            } else {
+                target.visitTypeInsn(org.objectweb.asm.Opcodes.NEW, 'java/lang/StringBuilder')
+                target.visitInsn(org.objectweb.asm.Opcodes.DUP)
+                target.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESPECIAL,
+                        'java/lang/StringBuilder', '<init>', '()V', false)
+                for (int packedIndex = 0; packedIndex < packedSlices.size(); packedIndex++) {
+                    target.visitLdcInsn(packedSlices[packedIndex])
+                    target.visitLdcInsn(key)
+                    target.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKESTATIC,
+                            strClass, 'dec', '(Ljava/lang/String;I)Ljava/lang/String;', false)
+                    target.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKEVIRTUAL,
+                            'java/lang/StringBuilder', 'append',
+                            '(Ljava/lang/String;)Ljava/lang/StringBuilder;', false)
+                }
+                target.visitMethodInsn(org.objectweb.asm.Opcodes.INVOKEVIRTUAL,
+                        'java/lang/StringBuilder', 'toString', '()Ljava/lang/String;', false)
+            }
+        }
+        def superByClass = [:]
+        classesDir.eachFileRecurse(groovy.io.FileType.FILES) { classFile ->
+            if (!classFile.name.endsWith('.class')) return
+            def classReader = new org.objectweb.asm.ClassReader(classFile.bytes)
+            superByClass[classReader.className] = classReader.superName
+        }
+        def moduleTypes = ['vegas/sony/module/Mod'] as Set
+        boolean hierarchyChanged = true
+        while (hierarchyChanged) {
+            hierarchyChanged = false
+            superByClass.each { className, superName ->
+                if (superName != null && moduleTypes.contains(superName) && moduleTypes.add(className)) {
+                    hierarchyChanged = true
+                }
+            }
+        }
+        classesDir.eachFileRecurse(groovy.io.FileType.FILES) { file ->
+            if (!file.name.endsWith('.class')) return
+            def bytes = file.bytes
+            def reader = new org.objectweb.asm.ClassReader(bytes)
+            // Do not seed the writer from the reader: doing so preserves the old
+            // constant pool, including the plaintext literal that was replaced.
+            def writer = new org.objectweb.asm.ClassWriter(
+                    org.objectweb.asm.ClassWriter.COMPUTE_MAXS)
+            boolean[] modified = [false]
+            def visitor = new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9, writer) {
+                String currentClassName
+                def pendingStaticInits = []
+                boolean[] hasClinit = [false]
+
+                @Override
+                void visit(int version, int access, String name, String signature, String superName,
+                        String[] interfaces) {
+                    currentClassName = name
+                    super.visit(version, access, name, signature, superName, interfaces)
+                }
+
+                @Override
+                org.objectweb.asm.FieldVisitor visitField(int access, String fieldName,
+                        String descriptor, String signature, Object fieldValue) {
+                    boolean staticString = (access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0
+                            && fieldValue instanceof String
+                    if (!staticString || currentClassName == strClass) {
+                        return super.visitField(access, fieldName, descriptor, signature, fieldValue)
+                    }
+                    String text = (String) fieldValue
+                    if (text.endsWith(rawMarker)) {
+                        modified[0] = true
+                        rawLiterals++
+                        return super.visitField(access, fieldName, descriptor, signature,
+                                text.substring(0, text.length() - rawMarker.length()))
+                    }
+                    // A ConstantValue attribute keeps the plaintext in the pool even
+                    // when every LDC is encrypted. Drop the attribute and decrypt
+                    // into the field from <clinit>; reflection and inlined use
+                    // sites observe the identical runtime value.
+                    String plain = text
+                    if (text.endsWith(displayMarker)) {
+                        plain = segmentUi(text.substring(0, text.length() - displayMarker.length()))
+                        segmentedDisplayStrings++
+                    } else if (text.endsWith(marker)) {
+                        plain = text.substring(0, text.length() - marker.length())
+                    }
+                    pendingStaticInits << [name: fieldName, desc: descriptor,
+                            plain: plain, key: random.nextInt()]
+                    modified[0] = true
+                    literals++
+                    blanketLiterals++
+                    staticFieldInits++
+                    return super.visitField(access, fieldName, descriptor, signature, null)
+                }
+
+                @Override
+                void visitEnd() {
+                    if (!pendingStaticInits.isEmpty() && !hasClinit[0]) {
+                        def mv = super.visitMethod(org.objectweb.asm.Opcodes.ACC_STATIC,
+                                '<clinit>', '()V', null, null)
+                        mv.visitCode()
+                        for (int qi = 0; qi < pendingStaticInits.size(); qi++) {
+                            def init = pendingStaticInits[qi]
+                            emitDecrypted(mv, init.plain, init.key)
+                            mv.visitFieldInsn(org.objectweb.asm.Opcodes.PUTSTATIC,
+                                    currentClassName, init.name, init.desc)
+                        }
+                        mv.visitInsn(org.objectweb.asm.Opcodes.RETURN)
+                        mv.visitMaxs(0, 0)
+                        mv.visitEnd()
+                    }
+                    super.visitEnd()
+                }
+
+                @Override
+                org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String descriptor,
+                        String signature, String[] exceptions) {
+                    def raw = super.visitMethod(access, name, descriptor, signature, exceptions)
+                    // String handling always wraps the raw delegate; the <clinit>
+                    // injector below wraps this handler so static-initializer
+                    // literals (array constants, field initializers) are covered.
+                    def withStrings = new org.objectweb.asm.MethodVisitor(
+                            org.objectweb.asm.Opcodes.ASM9, raw) {
+                        boolean moduleNameHandled = false
+
+                        @Override
+                        void visitLdcInsn(Object value) {
+                            if (value instanceof String && ((String) value).endsWith(rawMarker)) {
+                                super.visitLdcInsn(((String) value).substring(0,
+                                        ((String) value).length() - rawMarker.length()))
+                                modified[0] = true
+                                rawLiterals++
+                                return
+                            }
+                            // The Str helper decrypts through itself; never rewrite it.
+                            if (currentClassName == strClass) {
+                                super.visitLdcInsn(value)
+                                return
+                            }
+                            boolean displayMarked = value instanceof String
+                                    && ((String) value).endsWith(displayMarker)
+                            boolean marked = !displayMarked && value instanceof String
+                                    && ((String) value).endsWith(marker)
+                            boolean mappingLiteral = value instanceof String
+                                    && ((String) value).length() > 0
+                                    && currentClassName.startsWith('vegas/sony/mapping/runtime/')
+                            // Blanket mode: every other non-empty literal is encrypted
+                            // too. Decryption restores the exact runtime value, so
+                            // reflection, lookups and serialization are unaffected;
+                            // only the at-rest constant pool changes.
+                            boolean blanket = value instanceof String
+                                    && ((String) value).length() > 0
+                                    && !displayMarked && !marked && !mappingLiteral
+                            if (displayMarked || marked || mappingLiteral || blanket) {
+                                String plain = displayMarked
+                                        ? ((String) value).substring(0,
+                                            ((String) value).length() - displayMarker.length())
+                                        : marked
+                                        ? ((String) value).substring(0,
+                                            ((String) value).length() - marker.length())
+                                        : (String) value
+                                if (displayMarked) {
+                                    plain = segmentUi(plain)
+                                    segmentedDisplayStrings++
+                                } else if (marked && name == '<init>' && !moduleNameHandled
+                                        && currentClassName != 'vegas/sony/module/Mod'
+                                        && moduleTypes.contains(currentClassName)) {
+                                    plain = segmentUi(plain)
+                                    moduleNameHandled = true
+                                    segmentedModuleNames++
+                                }
+                                int key = random.nextInt()
+                                emitDecrypted(raw, plain, key)
+                                modified[0] = true
+                                literals++
+                                if (blanket) blanketLiterals++
+                                return
+                            }
+                            super.visitLdcInsn(value)
+                        }
+                    }
+                    if (name == '<clinit>' && !pendingStaticInits.isEmpty()) {
+                        hasClinit[0] = true
+                        return new org.objectweb.asm.MethodVisitor(
+                                org.objectweb.asm.Opcodes.ASM9, withStrings) {
+                            boolean injected = false
+
+                            @Override
+                            void visitCode() {
+                                super.visitCode()
+                                if (!injected) {
+                                    injected = true
+                                    for (int qi = 0; qi < pendingStaticInits.size(); qi++) {
+                                        def init = pendingStaticInits[qi]
+                                        emitDecrypted(raw, init.plain, init.key)
+                                        super.visitFieldInsn(org.objectweb.asm.Opcodes.PUTSTATIC,
+                                                currentClassName, init.name, init.desc)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return withStrings
+                }
+            }
+            reader.accept(visitor, 0)
+            if (modified[0]) {
+                file.bytes = writer.toByteArray()
+                transformed++
+            }
+        }
+        println("obfuscateStrings: ${literals} literals in ${transformed} classes; "
+                + "blanket=${blanketLiterals}; raw-opt-out=${rawLiterals}; "
+                + "static-field-inits=${staticFieldInits}; "
+                + "segmented module names=${segmentedModuleNames}; "
+                + "segmented display strings=${segmentedDisplayStrings}")
+    }
+}
+
+// Gradle 8.8 validates producer/consumer relationships strictly.  The normal
+// jar includes both processed resources and the transformed class directory,
+// so make both producer tasks explicit prerequisites.
+tasks.named('jar') {
+    dependsOn(tasks.named('encryptLanguageResources'), tasks.named('obfuscateStrings'), 'renameClasses')
+}
+
+// The injection pipeline rewrites the main classes directory in place.  Test
+// compilation and execution must therefore finish against the normal classes
+// before obfuscation/renaming starts when both pipelines are requested at once.
+tasks.named('compileTestJava') {
+    dependsOn(tasks.named('encryptLanguageResources'))
+}
+tasks.named('obfuscateStrings') {
+    mustRunAfter('compileTestJava', 'test')
+    mustRunAfter(tasks.named('authorizationGateProbe'))
+    mustRunAfter(tasks.named('licenseVerifierProbe'))
+}
+
+tasks.register('renameClasses', JavaExec) {
+    group = 'injection'
+    description = 'Renames payload classes and internal members in compiled bytecode.'
+    doNotTrackState('Renames and removes compiled class files in place.')
+    dependsOn(tasks.named('obfuscateStrings'))
+    classpath = sourceSets.obfuscate.runtimeClasspath
+    mainClass = 'obfuscate.RenameClasses'
+    def classesDir = sourceSets.main.java.classesDirectory.get().asFile
+    args = [
+            classesDir.absolutePath,
+            file("$buildDir/obfuscation/RENAME_MAP.md").absolutePath,
+            file("$buildDir/obfuscation/rename-map.txt").absolutePath,
+            bootstrapMapFile.absolutePath
+    ]
+    inputs.dir(classesDir)
+    outputs.dir(classesDir)
+    outputs.file(file("$buildDir/obfuscation/RENAME_MAP.md"))
+    outputs.file(file("$buildDir/obfuscation/rename-map.txt"))
+    outputs.file(bootstrapMapFile)
+}
+
+tasks.register('injectionJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+    group = 'injection'
+    description = 'Builds the self-contained Java payload embedded in the native DLL.'
+    archiveClassifier = 'injection'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn(tasks.named('renameClasses'))
+    from(sourceSets.main.output)
+    configurations = [project.configurations.runtimeClasspath]
+    // Under Forge's LaunchClassLoader, javassist/asm resolve through a
+    // classloader that cannot see the injected jar (and Forge ships an
+    // incompatible ASM 5.x), so relocate them under a product-owned namespace
+    // (payload classes keep their logical names so javassist can compile).
+    relocate 'javassist', 'lIlllI'
+    relocate 'org.objectweb.asm', 'lIlllIl'
+    relocate 'com.google.common', 'lIlllIlI'
+    // Minecraft/CheatBreaker owns Netty. Shipping a second partial copy lets
+    // LaunchClassLoader mix classes from different releases during disconnect.
+    exclude 'io/netty/**'
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    exclude 'module-info.class', 'META-INF/versions/**'
+    manifest {
+        attributes(
+                'Implementation-Title': 'lIlIlIll',
+                'Implementation-Version': project.version,
+                'Target-Java-Version': '8')
+    }
+    doLast {
+        def payload = archiveFile.get().asFile
+        def sanitized = new File(payload.parentFile, payload.name + '.sanitizing')
+        if (sanitized.exists()) {
+            sanitized.delete()
+        }
+        int strippedClasses = 0
+        new java.util.jar.JarFile(payload).withCloseable { inputJar ->
+            new java.util.jar.JarOutputStream(new java.io.BufferedOutputStream(
+                    new java.io.FileOutputStream(sanitized))).withCloseable { outputJar ->
+                outputJar.setLevel(java.util.zip.Deflater.BEST_COMPRESSION)
+                inputJar.entries().each { entry ->
+                    def replacement = new java.util.jar.JarEntry(entry.name)
+                    replacement.time = 0L
+                    outputJar.putNextEntry(replacement)
+                    if (!entry.isDirectory()) {
+                        byte[] entryBytes
+                        inputJar.getInputStream(entry).withCloseable { input ->
+                            entryBytes = input.bytes
+                        }
+                        if (entry.name.endsWith('.class')) {
+                            def reader = new org.objectweb.asm.ClassReader(entryBytes)
+                            def writer = new org.objectweb.asm.ClassWriter(0)
+                            def visitor = new org.objectweb.asm.ClassVisitor(
+                                    org.objectweb.asm.Opcodes.ASM9, writer) {
+                                @Override
+                                void visit(int version, int access, String name,
+                                        String signature, String superName, String[] interfaces) {
+                                    super.visit(version, access, name, signature, superName, interfaces)
+                                    // Minecraft 1.8.9 assumes getFileName() is non-null
+                                    // while composing crash reports. The generic value
+                                    // avoids exposing original source file names.
+                                    super.visitSource('Source.java', null)
+                                }
+                            }
+                            reader.accept(visitor, org.objectweb.asm.ClassReader.SKIP_DEBUG)
+                            entryBytes = writer.toByteArray()
+                            strippedClasses++
+                        }
+                        outputJar.write(entryBytes)
+                    }
+                    outputJar.closeEntry()
+                }
+            }
+        }
+        java.nio.file.Files.move(sanitized.toPath(), payload.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        println("stripped debug metadata from ${strippedClasses} payload classes")
+    }
+}
+
+tasks.register('verifyInjectionPayload') {
+    group = 'verification'
+    description = 'Verifies that the embedded payload is complete and Java 8 loadable.'
+    dependsOn(tasks.named('injectionJar'))
+    inputs.file(tasks.named('injectionJar', Jar).flatMap { it.archiveFile })
+    doLast {
+        def payload = tasks.named('injectionJar', Jar).get().archiveFile.get().asFile
+        def renameMapFile = file("$buildDir/obfuscation/rename-map.txt")
+        def renameMap = [:]
+        renameMapFile.readLines('UTF-8').each { line ->
+            def parts = line.split('=', 2)
+            if (parts.length == 2) renameMap[parts[0]] = parts[1]
+        }
+        def nativeBridgeClass = renameMap['vegas/sony/runtime/NativeBridge']
+        if (nativeBridgeClass == null) {
+            throw new GradleException('rename map is missing NativeBridge')
+        }
+        def requiredPrefixes = [
+                'lIlllI/',
+                'lIlllIl/',
+                'com/google/gson/',
+                'lIlllIlI/',
+                'org/apache/commons/io/',
+                'org/lwjgl/'
+        ]
+        def forbiddenPrefixes = ['io/netty/']
+        def prefixCounts = requiredPrefixes.collectEntries { [(it): 0] }
+        def forbiddenEntries = []
+        def tooNew = []
+        def unsafeSourceFiles = []
+        int classCount = 0
+        new java.util.jar.JarFile(payload).withCloseable { archive ->
+            if (archive.getEntry(nativeBridgeClass + '.class') == null) {
+                throw new GradleException('injection payload is missing NativeBridge.class at ' + nativeBridgeClass)
+            }
+            def nativeBridgeMethods = [] as Set
+            archive.getInputStream(archive.getEntry(nativeBridgeClass + '.class')).withCloseable { input ->
+                def reader = new org.objectweb.asm.ClassReader(input.bytes)
+                reader.accept(new org.objectweb.asm.ClassVisitor(
+                        org.objectweb.asm.Opcodes.ASM9) {
+                    @Override
+                    org.objectweb.asm.MethodVisitor visitMethod(int access, String name,
+                            String descriptor, String signature, String[] exceptions) {
+                        nativeBridgeMethods.add(name + descriptor)
+                        return null
+                    }
+                }, org.objectweb.asm.ClassReader.SKIP_CODE
+                        | org.objectweb.asm.ClassReader.SKIP_DEBUG
+                        | org.objectweb.asm.ClassReader.SKIP_FRAMES)
+            }
+            def requiredNativeBridgeMethods = [
+                    'scb(Ljava/lang/Class;[B)I',
+                    'smd(II)V',
+                    'gks(I)S',
+                    'gkn(J)Ljava/lang/String;',
+                    'mvk(II)I',
+                    'cpy(Ljava/lang/String;)V',
+                    'gcb(Ljava/lang/Class;)[B',
+                    'glc(Ljava/lang/String;)Ljava/lang/Class;',
+                    'gfb(Ljava/lang/String;)[B',
+                    'srl(Ljava/lang/ClassLoader;)V',
+                    'trs(I)V',
+                    'inv(Ljava/lang/reflect/Method;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;',
+                    'gat()Ljava/lang/String;',
+                    'gzp()I',
+                    'rca()Z',
+                    'cca(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;',
+                    'acb(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[I)Ljava/lang/String;',
+                    'agi()Ljava/lang/String;',
+                    'rid()Ljava/lang/String;',
+                    'slw(Z)Z',
+                    'dsv2(ILjava/lang/String;DDIF)I',
+                    'ss_2(Ljava/lang/String;)I',
+                    'hps([F)I',
+                    'mfv2(IILjava/lang/String;)I',
+                    'ss([B)V',
+                    'sce(Ljava/lang/String;)V',
+                    'blr()Z',
+                    'start()V',
+                    'isStartCompleted()Z',
+                    'om(IJJ)Z',
+                    'wh(J)V',
+                    'ov(Z)Z'
+            ] as Set
+            def missingNativeBridgeMethods = requiredNativeBridgeMethods - nativeBridgeMethods
+            if (!missingNativeBridgeMethods.isEmpty()) {
+                throw new GradleException('NativeBridge methods renamed or removed from the injection payload: '
+                        + missingNativeBridgeMethods.sort().join(', '))
+            }
+            archive.entries().each { entry ->
+                if (!entry.name.endsWith('.class')) {
+                    return
+                }
+                classCount++
+                prefixCounts.keySet().each { prefix ->
+                    if (entry.name.startsWith(prefix)) {
+                        prefixCounts[prefix]++
+                    }
+                }
+                forbiddenPrefixes.each { prefix ->
+                    if (entry.name.startsWith(prefix)) forbiddenEntries << entry.name
+                }
+                archive.getInputStream(entry).withCloseable { input ->
+                    byte[] classBytes = input.bytes
+                    if (classBytes.length < 8) {
+                        throw new GradleException("truncated class entry: ${entry.name}")
+                    }
+                    int major = ((classBytes[6] & 0xff) << 8) | (classBytes[7] & 0xff)
+                    if (major > 52) {
+                        tooNew << "${entry.name} (major ${major})"
+                    }
+                    def sourceFiles = []
+                    new org.objectweb.asm.ClassReader(classBytes).accept(
+                            new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9) {
+                                @Override
+                                void visitSource(String source, String debug) {
+                                    sourceFiles << source
+                                }
+                            }, org.objectweb.asm.ClassReader.SKIP_CODE
+                                    | org.objectweb.asm.ClassReader.SKIP_FRAMES)
+                    if (sourceFiles != ['Source.java']) {
+                        unsafeSourceFiles << "${entry.name} (${sourceFiles ?: 'missing'})"
+                    }
+                }
+            }
+
+            def runtimeSnippetMethods = [
+                    ['vegas/sony/mapping/ItemStackTooltipCallback', 'call', '(Ljava/lang/Object;Ljava/util/List;)Ljava/util/List;'],
+                    ['vegas/sony/event/impl/EventMotion', 'getRotationYaw', '()F'],
+                    ['vegas/sony/event/impl/EventMotion', 'getRotationPitch', '()F'],
+                    ['vegas/sony/event/impl/EventMotion', 'isOnGround', '()Z'],
+                    ['vegas/sony/mapping/EventRenderPlayerPreCallback', 'call',
+                            '(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Z'],
+                    ['vegas/sony/mapping/EventRenderPlayerPostCallback', 'call',
+                            '(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V'],
+                    ['vegas/sony/mapping/EntityBoundingBoxFilterHook', 'filter',
+                            '(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;'],
+                    ['vegas/sony/mapping/CapeTextureOverrideHook', 'override',
+                            '(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;'],
+                    ['vegas/sony/mapping/CapeTextureOverrideHook', 'forceCapeVisible',
+                            '(Ljava/lang/Object;Ljava/lang/Object;Z)Z'],
+                    ['vegas/sony/mapping/CapeRenderHook', 'renderPlayerEnter',
+                            '(Ljava/lang/Object;)V'],
+                    ['vegas/sony/mapping/CapeRenderHook', 'renderPlayerExit',
+                            '(Ljava/lang/Object;)V'],
+                    ['vegas/sony/mapping/CapeRenderHook', 'capeLayerEnter',
+                            '(Ljava/lang/Object;)V'],
+                    ['vegas/sony/mapping/CapeRenderHook', 'capeLayerExit',
+                            '(Ljava/lang/Object;)V'],
+                    ['vegas/sony/mapping/CapeRenderHook', 'markCustomCape',
+                            '(Z)V'],
+                    ['vegas/sony/mapping/CapeRenderHook', 'renderCustomCape',
+                            '(F)Z'],
+                    ['vegas/sony/input/ChatCommandHandler', 'process',
+                            '(Ljava/lang/String;)Z']
+            ]
+            runtimeSnippetMethods.groupBy { it[0] }.each { sourceClass, methods ->
+                def renamedClass = renameMap[sourceClass]
+                if (renamedClass == null) {
+                    throw new GradleException("rename map is missing runtime callback ${sourceClass}")
+                }
+                def callbackEntry = archive.getEntry(renamedClass + '.class')
+                if (callbackEntry == null) {
+                    throw new GradleException("payload is missing runtime callback ${renamedClass}")
+                }
+                def foundMethods = [] as Set
+                archive.getInputStream(callbackEntry).withCloseable { input ->
+                    def reader = new org.objectweb.asm.ClassReader(input.bytes)
+                    reader.accept(new org.objectweb.asm.ClassVisitor(
+                            org.objectweb.asm.Opcodes.ASM9) {
+                        @Override
+                        org.objectweb.asm.MethodVisitor visitMethod(int access, String name,
+                                String descriptor, String signature, String[] exceptions) {
+                            foundMethods.add(name + descriptor)
+                            return null
+                        }
+                    }, org.objectweb.asm.ClassReader.SKIP_CODE
+                            | org.objectweb.asm.ClassReader.SKIP_DEBUG
+                            | org.objectweb.asm.ClassReader.SKIP_FRAMES)
+                }
+                methods.each { method ->
+                    if (!foundMethods.contains(method[1] + method[2])) {
+                        throw new GradleException("Javassist callback was renamed or removed: "
+                                + "${sourceClass}.${method[1]}${method[2]}")
+                    }
+                }
+            }
+        }
+        def missingDependencies = prefixCounts.findAll { prefix, count -> count == 0 }
+        if (!missingDependencies.isEmpty()) {
+            throw new GradleException(
+                    "injection payload is missing runtime packages: ${missingDependencies.keySet()}")
+        }
+        if (!forbiddenEntries.isEmpty()) {
+            throw new GradleException(
+                    "injection payload contains host-owned classes: ${forbiddenEntries.take(20)}")
+        }
+        if (!tooNew.isEmpty()) {
+            throw new GradleException(
+                    "injection payload contains Java 9+ classes:\n${tooNew.join('\n')}")
+        }
+        if (!unsafeSourceFiles.isEmpty()) {
+            throw new GradleException(
+                    "injection payload has missing or revealing SourceFile metadata:\n"
+                            + unsafeSourceFiles.join('\n'))
+        }
+        println("injection payload: classes=${classCount}, Java 9+ classes=0, "
+                + "safe SourceFile metadata=${classCount}, "
+                + "runtime package families=${prefixCounts.size()}")
+    }
+}
+
+tasks.register('verifyNoPlaintextLeaks') {
+    group = 'verification'
+    description = 'Fails the build if identifying plaintext survives in the injection payload.'
+    dependsOn(tasks.named('injectionJar'))
+    inputs.file(tasks.named('injectionJar', Jar).flatMap { it.archiveFile })
+    doLast {
+        def payload = tasks.named('injectionJar', Jar).get().archiveFile.get().asFile
+        // Module identities are derived from the sources so new modules are
+        // covered without touching this task.
+        def moduleNames = [] as Set
+        fileTree('src/main/java/vegas/sony/module') { include '**/*.java' }.files.each { source ->
+            def matcher = source.name =~ /(\w+)\.java/
+            if (matcher.matches()) moduleNames << matcher.group(1)
+        }
+        // Substring matching only for long tokens: short words (Target, Rotate)
+        // collide with game/JDK identifiers (glRotatef, annotation Target).
+        def substringTokens = ['vegas/sony', 'vegas.sony', 'SonyVegas', 'sonyvegas', 'Crimson',
+                'NativeBridge', 'CheatBreaker', 'MemoryJarLoader', 'ForgePayloadClassLoader',
+                '127.0.0.1', 'authenticated', 'Target Settings'] as Set
+        moduleNames.each { name -> if (name.length() >= 8) substringTokens << name }
+        // Third-party / host-owned packages blend with a vanilla client; only the
+        // product's own (renamed) classes are scanned.
+        def dependencyPrefixes = ['com/google/gson/', 'com/google/zxing/', 'org/lwjgl/',
+                'org/apache/commons/', 'lIlllI/', 'lIlllIl/', 'lIlllIlI/']
+        def offenders = []
+        new java.util.jar.JarFile(payload).withCloseable { archive ->
+            archive.entries().each { entry ->
+                if (!entry.isDirectory()
+                        && (entry.name.contains('sonyvegas') || entry.name.contains('SonyVegas')
+                                || entry.name.contains('Crimson'))) {
+                    offenders << "${entry.name} (resource path)"
+                    return
+                }
+                if (!entry.name.endsWith('.class')) return
+                boolean thirdParty = dependencyPrefixes.any { entry.name.startsWith(it) }
+                if (thirdParty) return
+                byte[] classBytes
+                archive.getInputStream(entry).withCloseable { input -> classBytes = input.bytes }
+                // Only materialized strings can leak: LDC operands (CONSTANT_String
+                // pool entries) and static-final ConstantValue attributes. Method
+                // names, descriptors, class refs and annotations are structural.
+                def utf8ByIndex = [:]
+                def stringIndices = [] as Set
+                try {
+                    int count = ((classBytes[8] & 0xff) << 8) | (classBytes[9] & 0xff)
+                    int cursor = 10
+                    for (int index = 1; index < count; index++) {
+                        int tag = classBytes[cursor++] & 0xff
+                        switch (tag) {
+                            case 1:
+                                int length = ((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff)
+                                cursor += 2
+                                utf8ByIndex[index] = new String(classBytes, cursor, length,
+                                        java.nio.charset.StandardCharsets.UTF_8)
+                                cursor += length
+                                break
+                            case 8:
+                                stringIndices << (((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff))
+                                cursor += 2
+                                break
+                            case 7: case 16: case 19: case 20: cursor += 2; break
+                            case 3: case 4: case 9: case 10: case 11: case 12: case 17: case 18:
+                                cursor += 4; break
+                            case 5: case 6: cursor += 8; index++; break
+                            case 15: cursor += 3; break
+                            default: cursor = classBytes.length; index = count; break
+                        }
+                    }
+                    cursor += 6
+                    int interfaces = ((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff)
+                    cursor += 2 + interfaces * 2
+                    int fields = ((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff)
+                    cursor += 2
+                    for (int f = 0; f < fields; f++) {
+                        cursor += 6
+                        int attributes = ((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff)
+                        cursor += 2
+                        for (int a = 0; a < attributes; a++) {
+                            int attrName = ((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff)
+                            int attrLength = ((classBytes[cursor + 2] & 0xff) << 24) | ((classBytes[cursor + 3] & 0xff) << 16) | ((classBytes[cursor + 4] & 0xff) << 8) | (classBytes[cursor + 5] & 0xff)
+                            cursor += 6
+                            if (utf8ByIndex[attrName] == 'ConstantValue' && attrLength == 2) {
+                                stringIndices << (((classBytes[cursor] & 0xff) << 8) | (classBytes[cursor + 1] & 0xff))
+                            }
+                            cursor += attrLength
+                        }
+                    }
+                } catch (Exception ignored) {
+                    return
+                }
+                stringIndices.each { ref ->
+                    String text = utf8ByIndex[ref]
+                    if (text == null) return
+                    moduleNames.each { name ->
+                        if (name.length() < 8) {
+                            if (text == name) offenders << "${entry.name} :: ${text.take(90)}"
+                        } else if (text.contains(name)) {
+                            offenders << "${entry.name} :: ${text.take(90)}"
+                        }
+                    }
+                    substringTokens.each { token ->
+                        if (text.contains(token)) {
+                            offenders << "${entry.name} :: ${text.take(90)}"
+                        }
+                    }
+                }
+            }
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException('injection payload leaks identifying plaintext '
+                    + "(${offenders.size()} hits):\n" + offenders.take(25).join('\n'))
+        }
+        println("no identifying plaintext in ${payload.name} "
+                + "(modules checked: ${moduleNames.size()})")
+    }
+}
+
+tasks.named('verifyInjectionPayload') {
+    dependsOn(tasks.named('verifyNoPlaintextLeaks'))
+    dependsOn(tasks.named('verifySegmentedDisplay'))
+    dependsOn('badlionRenderHookProbe')
+}
+
+tasks.register('badlionRenderHookProbe', JavaExec) {
+    group = 'verification'
+    description = 'Tests the shipped Badlion frame hook and callback after payload renaming and shading.'
+    dependsOn(tasks.named('testClasses'), tasks.named('injectionJar'))
+    // Product classes are loaded from the final JAR by the probe's isolated loader.
+    classpath = sourceSets.test.output + configurations.testRuntimeClasspath
+    mainClass = 'vegas.sony.mapping.BadlionRenderHookProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    doFirst {
+        args = [tasks.named('injectionJar', Jar).get().archiveFile.get().asFile.absolutePath,
+                file("$buildDir/obfuscation/rename-map.txt").absolutePath,
+                bootstrapMapFile.absolutePath]
+    }
+}
+
+tasks.register('verifySegmentedDisplay') {
+    group = 'verification'
+    description = 'Fails the build if display text could materialize contiguous module names.'
+    doLast {
+        def failures = []
+        def remoteClient = file('src/main/java/vegas/sony/remote/RemoteControlClient.java')
+        remoteClient.eachLine { line, number ->
+            if (line.contains('visibleText(')) {
+                failures << "RemoteControlClient.java:${number}: visibleText() strips \\u00a7 separators"
+            }
+        }
+        // Module display names must carry //$ or //$ui so the bytecode pass
+        // stores them §r-segmented; unmarked names stay contiguous at runtime.
+        fileTree('src/main/java/vegas/sony/module') { include '**/*.java' }.files.each { source ->
+            if (source.name == 'TextGuiSettingsFrame.java') return
+            source.eachLine { line, number ->
+                def matcher = line =~ /super\("((?:[^"\\]|\\.)*)"/
+                if (matcher.find()) {
+                    String name = matcher.group(1)
+                    if (!name.endsWith(' //$') && !name.endsWith(' //$ui')) {
+                        failures << "${source.name}:${number}: unmarked module super() name"
+                    }
+                }
+            }
+        }
+        // Category names render in every GUI surface; they must segment.
+        file('src/main/java/vegas/sony/module/Category.java').eachLine { line, number ->
+            def matcher = line =~ /new Category\("((?:[^"\\]|\\.)*)"/
+            if (matcher.find() && !matcher.group(1).endsWith(' //$ui')) {
+                failures << "Category.java:${number}: category name must end with //\$ui"
+            }
+        }
+        if (!failures.isEmpty()) {
+            throw new GradleException('segmented-display violations:\n' + failures.join('\n'))
+        }
+        println('segmented display sources verified')
+    }
+}
+
+def nativeSourceDirectory = file('native')
+def nativeBuildDirectory = layout.buildDirectory.dir('native')
+def injectionBundleDirectory = layout.buildDirectory.dir('injection')
+def productJar = tasks.named('injectionJar', Jar).flatMap { it.archiveFile }
+def nativeJavaHome = providers.gradleProperty('nativeJavaHome')
+        .orElse(providers.environmentVariable('JAVA_HOME'))
+        .orElse('C:/Program Files/Java/jdk1.8.0_301')
+def defaultNativeCmakeGenerator = file('C:/Program Files/Microsoft Visual Studio/18').isDirectory()
+        ? 'Visual Studio 18 2026'
+        : 'Visual Studio 17 2022'
+def nativeCmakeGenerator = providers.gradleProperty('nativeCmakeGenerator')
+        .orElse(defaultNativeCmakeGenerator)
+def vmprotectConsole = providers.gradleProperty('vmprotect.console')
+        .orElse('C:/Program Files/VMProtect Ultimate/VMProtect_Con.exe')
+
+tasks.register('configureNative', Exec) {
+    group = 'injection'
+    description = 'Configures the x64 native DLL and loader with VMProtect.'
+    dependsOn(tasks.named('verifyInjectionPayload'))
+    inputs.file(productJar)
+    inputs.files(fileTree(nativeSourceDirectory) {
+        include 'CMakeLists.txt', '*.c', '*.cpp', '*.h', '*.java', '*.py', '*.rc.in', '*.vmp', '*.cmake', 'imgui/**'
+        exclude 'legacy_*'
+    })
+    outputs.file(nativeBuildDirectory.map { it.file('CMakeCache.txt') })
+    outputs.file(nativeBuildDirectory.map { it.file('dist/IllIIlIl.dll.vmp') })
+    outputs.file(nativeBuildDirectory.map { it.file('dist/unknown.exe.vmp') })
+    doFirst {
+        commandLine 'cmake',
+                '-S', nativeSourceDirectory.absolutePath,
+                '-B', nativeBuildDirectory.get().asFile.absolutePath,
+                '-G', nativeCmakeGenerator.get(),
+                '-A', 'x64',
+                "-DSONYVEGAS421_JAVA_HOME=${nativeJavaHome.get()}",
+                "-DSONYVEGAS421_VMP_CONSOLE=${file(vmprotectConsole.get()).absolutePath}",
+                "-DSONYVEGAS421_PRODUCT_JAR=${productJar.get().asFile.absolutePath}"
+    }
+}
+
+tasks.register('buildNative', Exec) {
+    group = 'injection'
+    description = 'Builds and VMProtects the native DLL and loader.'
+    dependsOn(tasks.named('configureNative'))
+    inputs.file(productJar)
+    inputs.files(fileTree(nativeSourceDirectory) {
+        include 'CMakeLists.txt', '*.c', '*.cpp', '*.h', '*.java', '*.py', '*.rc.in', '*.vmp', '*.cmake', 'imgui/**'
+        exclude 'legacy_*'
+    })
+    outputs.file(nativeBuildDirectory.map { it.file('dist/IllIIlIl.dll') })
+    outputs.file(nativeBuildDirectory.map { it.file('dist/unknown.exe') })
+    doFirst {
+        commandLine 'cmake', '--build', nativeBuildDirectory.get().asFile.absolutePath,
+                '--config', 'Release', '--target', 'SonyVegas421NativeProtected', 'SonyVegas421InjectorProtected'
+    }
+}
+
+tasks.register('cleanPayloadClasses') {
+    group = 'injection'
+    description = 'Deletes stale payload classes, jars and native outputs so every injection build is deterministic.'
+    def payloadClasses = sourceSets.main.java.classesDirectory.get().asFile
+    def libsDir = file("$buildDir/libs")
+    def nativeBuild = layout.buildDirectory.dir('native').get().asFile
+    doLast {
+        delete payloadClasses
+        delete libsDir
+        if (!javaOnlyBuild) delete nativeBuild
+    }
+}
+
+tasks.named('compileJava') {
+    mustRunAfter(tasks.named('cleanPayloadClasses'))
+}
+
+tasks.register('localControlSessionProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks random local-control URL tokens and rejects stale roots.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.remote.LocalControlSessionTokenProbe'
+}
+
+tasks.register('controlPanelProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks control-panel rendering, endpoint decryption and loopback HTTP requests.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.remote.ControlPanelProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('piercingManualPlayersProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks Piercing manual player choices and native avatar serialization.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.value.PiercingManualPlayersValueProbe'
+}
+
+tasks.register('invseeRankingProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks the ordered Invsee roster, automatic minimum selection and native ranking payload.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.value.InvseeTargetCandidatesValueProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('badlionModuleSnapshotProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks that every 1.8.9 module value reaches the Badlion native menu snapshot.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.remote.BadlionModuleSnapshotProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    // The production obfuscation pipeline rewrites build/classes/java/main in
+    // place. Exercise the readable classes first, then audit the renamed JAR
+    // separately in badlionRenderHookProbe.
+}
+
+tasks.register('capeTextureProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks every bundled cape atlas, both faces and texture registration.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.module.render.BundledCapeTextureProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('invseeSelectionPolicyProbe', JavaExec) {
+    group = 'verification'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.module.gladiador.InvseeSelectionPolicyProbe'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+}
+tasks.named('invseeRankingProbe') { dependsOn(tasks.named('invseeSelectionPolicyProbe')) }
+
+tasks.register('targetSafeHitsProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks Target Safe Hits visibility and ally pass-through rules.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.module.gladiador.TargetSafeHitsProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('authorizationGateProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks the Java startup authorization gate fails closed and never initializes twice.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.startup.AuthorizationGateProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('licenseVerifierProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks signed license verification: valid, tampered, wrong-key, expired, wrong-product.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.api.LicenseVerifierProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('auraSwitchDelayProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks that Aura Switch delay holds the hit target despite sorting or range changes.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.module.combat.AuraSwitchDelayProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('auraAttackTimingProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks configured Aura CPS and separate Legit swing/attack reach.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.module.combat.AuraAttackTimingProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.register('auraAttackInputProbe', JavaExec) {
+    group = 'verification'
+    description = 'Checks Aura input pause, mining interruption and physical-button restoration.'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.module.combat.AuraAttackInputProbe'
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+['obfuscateClasses', 'obfuscateStrings', 'renameClasses'].each { taskName ->
+    tasks.named(taskName) { mustRunAfter(tasks.named('auraAttackInputProbe')) }
+}
+tasks.named('verifyInjectionPayload') { dependsOn(tasks.named('auraAttackInputProbe')) }
+
+tasks.named('obfuscateClasses') {
+    mustRunAfter(tasks.named('badlionModuleSnapshotProbe'))
+    mustRunAfter(tasks.named('capeTextureProbe'))
+    mustRunAfter(tasks.named('targetSafeHitsProbe'))
+    mustRunAfter(tasks.named('auraSwitchDelayProbe'))
+    mustRunAfter(tasks.named('auraAttackTimingProbe'))
+    mustRunAfter(tasks.named('invseeRankingProbe'))
+    mustRunAfter(tasks.named('authorizationGateProbe'))
+    mustRunAfter(tasks.named('controlPanelProbe'))
+}
+tasks.named('obfuscateStrings') {
+    mustRunAfter(tasks.named('badlionModuleSnapshotProbe'))
+    mustRunAfter(tasks.named('capeTextureProbe'))
+    mustRunAfter(tasks.named('targetSafeHitsProbe'))
+    mustRunAfter(tasks.named('auraSwitchDelayProbe'))
+    mustRunAfter(tasks.named('auraAttackTimingProbe'))
+    mustRunAfter(tasks.named('invseeRankingProbe'))
+    mustRunAfter(tasks.named('controlPanelProbe'))
+}
+tasks.named('renameClasses') {
+    mustRunAfter(tasks.named('badlionModuleSnapshotProbe'))
+    mustRunAfter(tasks.named('capeTextureProbe'))
+    mustRunAfter(tasks.named('targetSafeHitsProbe'))
+    mustRunAfter(tasks.named('auraSwitchDelayProbe'))
+    mustRunAfter(tasks.named('auraAttackTimingProbe'))
+    mustRunAfter(tasks.named('invseeRankingProbe'))
+    mustRunAfter(tasks.named('controlPanelProbe'))
+}
+
+tasks.named('verifyInjectionPayload') {
+    dependsOn(tasks.named('badlionModuleSnapshotProbe'))
+    dependsOn(tasks.named('capeTextureProbe'))
+    dependsOn(tasks.named('targetSafeHitsProbe'))
+    dependsOn(tasks.named('auraSwitchDelayProbe'))
+    dependsOn(tasks.named('auraAttackTimingProbe'))
+    dependsOn(tasks.named('invseeRankingProbe'))
+    dependsOn(tasks.named('controlPanelProbe'))
+    dependsOn(tasks.named('authorizationGateProbe'))
+    dependsOn(tasks.named('licenseVerifierProbe'))
+}
+
+tasks.register('partyTargetSyncProbe', JavaExec) {
+    group = 'verification'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.remote.PartyTargetSyncProbe'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+}
+tasks.register('moduleToggleNotificationProbe', JavaExec) {
+    group = 'verification'
+    dependsOn(tasks.named('testClasses'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'vegas.sony.notification.ModuleToggleNotificationProbe'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+}
+['obfuscateClasses', 'obfuscateStrings', 'renameClasses'].each { taskName ->
+    tasks.named(taskName) {
+        mustRunAfter(tasks.named('partyTargetSyncProbe'))
+        mustRunAfter(tasks.named('moduleToggleNotificationProbe'))
+    }
+}
+tasks.named('verifyInjectionPayload') {
+    dependsOn(tasks.named('partyTargetSyncProbe'), tasks.named('moduleToggleNotificationProbe'))
+}
+
+tasks.register('prepareInjectionBundle', Copy) {
+    group = 'injection'
+    description = 'Updates the protected DLL and loader in the injection directory.'
+    dependsOn(tasks.named('buildNative'), tasks.named('cleanPayloadClasses'))
+    from(nativeBuildDirectory.map { it.dir('dist') }) {
+        include 'IllIIlIl.dll', 'unknown.exe'
+    }
+    into(injectionBundleDirectory)
+    doLast {
+        def dll = injectionBundleDirectory.get().file('IllIIlIl.dll').asFile
+        if (!dll.isFile() || dll.length() == 0L) {
+            throw new GradleException('native DLL was not produced')
+        }
+        def loader = injectionBundleDirectory.get().file('unknown.exe').asFile
+        if (!loader.isFile() || loader.length() == 0L) {
+            throw new GradleException('native loader was not produced')
+        }
+        println("native DLL and loader updated: ${dll}, ${loader}")
+    }
+}
+
+tasks.register('protectWithVmProtect') {
+    group = 'injection'
+    description = 'Builds the DLL and loader with VMProtect; alias for prepareInjectionBundle.'
+    dependsOn(tasks.named('prepareInjectionBundle'))
+}
+
+tasks.register('zipInjectionBundle', Zip) {
+    group = 'injection'
+    description = 'Packages the complete injection bundle as one ZIP archive.'
+    dependsOn(tasks.named('prepareInjectionBundle'))
+    from(injectionBundleDirectory)
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    archiveFileName = 'SonyVegas-4.21-bundle.zip'
+}

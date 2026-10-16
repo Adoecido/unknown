@@ -1,0 +1,5 @@
+# Allatori reuses tokens across unrelated members. Never match these MCP names
+# by Allatori token alone — always require owner + name + JVM descriptor.
+# Source: Crimson CHEATBREAKER_MAPPINGS.md / runtime field analysis.
+canEntityBeSeen
+getHealth

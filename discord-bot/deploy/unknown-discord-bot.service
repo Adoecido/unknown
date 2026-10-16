@@ -1,0 +1,30 @@
+[Unit]
+Description=UNKNOWN Discord tickets, moderation and Minecraft sessions
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=unknown-discord-bot
+Group=unknown-discord-bot
+WorkingDirectory=/var/lib/unknown-discord-bot
+Environment=NODE_ENV=production
+Environment=BOT_DATA_FILE=/var/lib/unknown-discord-bot/data/state.json
+EnvironmentFile=/etc/unknown-discord-bot/bot.env
+ExecStart=/usr/bin/node /opt/unknown-discord-bot/src/index.js
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/unknown-discord-bot
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

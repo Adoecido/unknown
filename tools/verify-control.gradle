@@ -1,0 +1,23 @@
+// Run with the Java 8 wrapper and -PlegacyJava8Compiler=true.
+allprojects {
+    afterEvaluate {
+        ['inventoryCompatibilityProbe': 'vegas.sony.mapping.InventoryCompatibilityProbe',
+         'partySyncProbe': 'vegas.sony.remote.PartySyncProbe',
+         'menuRegressionProbe': 'vegas.sony.remote.MenuRegressionProbe',
+         'controlPanelProbe': 'vegas.sony.remote.ControlPanelProbe',
+         'controlSessionProbe': 'vegas.sony.remote.LocalControlSessionTokenProbe',
+         'moduleToggleNotificationProbe': 'vegas.sony.notification.ModuleToggleNotificationProbe',
+         'autoGappleSuffixProbe': 'vegas.sony.module.combat.AutoGappleSuffixProbe',
+         'targetNameNormalizationProbe': 'vegas.sony.module.gladiador.TargetNameNormalizationProbe',
+         'invseeTargetCandidatesProbe': 'vegas.sony.value.InvseeTargetCandidatesValueProbe',
+         'remoteColorSerializationProbe': 'vegas.sony.remote.RemoteColorSerializationProbe',
+         'remoteIdentityProbe': 'vegas.sony.remote.RemoteIdentityProbe'].each { taskName, className ->
+            tasks.register(taskName, JavaExec) {
+                dependsOn tasks.named('testClasses')
+                classpath = sourceSets.test.runtimeClasspath
+                mainClass = className
+            }
+            tasks.named('obfuscateStrings') { mustRunAfter tasks.named(taskName) }
+        }
+    }
+}

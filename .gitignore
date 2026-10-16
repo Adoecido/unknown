@@ -1,0 +1,42 @@
+.gradle/
+build/
+out/
+*.log
+src/manual/
+tmp-*/
+*.iml
+*.ipr
+*.iws
+javap-*.txt
+.idea/workspace.xml
+compile.out
+compile2.out
+tools/__pycache__/
+obf_*.bin
+.env
+.env.*
+!discord-bot/.env.example
+scripts/*.secret
+
+# License signing keys: the private key must never be committed. Regenerate
+# locally with `python vps/license_keygen.py` and copy ONLY the private file
+# to the VPS.
+/vps/license_private.json
+/vps/license_public.json
+
+# decompilation / obfuscation analysis artifacts (repo root)
+/analise/
+/build-output.txt
+/com/
+/io/
+/org/
+/mappings/
+/META-INF/
+/resources/
+/IIll*/
+/lIll*/
+
+
+# Python generated caches
+__pycache__/
+*.py[cod]

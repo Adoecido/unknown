@@ -1,0 +1,11 @@
+// Optional probe without changing the normal build graph:
+// gradlew -I tools/verify-cb-mappings.gradle cbFontRendererProbe
+allprojects {
+    afterEvaluate {
+        tasks.register('cbFontRendererProbe', JavaExec) {
+            dependsOn tasks.named('testClasses')
+            classpath = sourceSets.test.runtimeClasspath
+            mainClass = 'vegas.sony.mapping.mappings.MFontRendererCheatBreakerProbe'
+        }
+    }
+}

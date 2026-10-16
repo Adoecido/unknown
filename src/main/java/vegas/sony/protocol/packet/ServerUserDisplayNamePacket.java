@@ -1,0 +1,39 @@
+package vegas.sony.protocol.packet;
+
+import vegas.sony.friend.UserModel;
+import vegas.sony.protocol.ZeusPacketBuffer;
+import vegas.sony.protocol.packet.ZeusSerializablePacket;
+
+public class ServerUserDisplayNamePacket
+implements ZeusSerializablePacket {
+    private long userId;
+    private String displayName;
+
+    public ServerUserDisplayNamePacket() {
+    }
+
+    @Override
+    public void S(ZeusPacketBuffer zeusPacketBuffer) {
+        this.userId = zeusPacketBuffer.readLong();
+        this.displayName = zeusPacketBuffer.readString(16);
+    }
+
+    public String getDisplayName() {
+        return this.displayName;
+    }
+
+    public long getUserId() {
+        return this.userId;
+    }
+
+    @Override
+    public void o(ZeusPacketBuffer zeusPacketBuffer) {
+        zeusPacketBuffer.writeLong(this.userId);
+        zeusPacketBuffer.writeString(this.displayName);
+    }
+
+    public ServerUserDisplayNamePacket(UserModel userModel, String displayName) {
+        this.userId = userModel.getId();
+        this.displayName = displayName;
+    }
+}

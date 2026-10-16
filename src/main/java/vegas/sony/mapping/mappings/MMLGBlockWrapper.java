@@ -1,0 +1,46 @@
+package vegas.sony.mapping.mappings;
+
+import vegas.sony.mapping.MappedClasses;
+import vegas.sony.mapping.Mapping;
+import vegas.sony.mapping.MappingField;
+import vegas.sony.mapping.MappingFieldBuilder;
+import vegas.sony.mapping.mappings.MChestTypeHolder;
+import vegas.sony.ui.click.component.GuiComponent;
+import vegas.sony.wrapper.impl.ForgeVersion;
+
+public class MMLGBlockWrapper
+extends Mapping {
+    private final MappingField lavaField;
+    private final MappingField waterField;
+
+    public static Object getLava(MMLGBlockWrapper mapping) {
+        return mapping.readLava();
+    }
+
+    private Object readLava() {
+        return this.lavaField.getObject(null);
+    }
+
+
+    public MMLGBlockWrapper() {
+        this(MChestTypeHolder.getChestTypeHolderControlFlowState());
+    }
+
+    private MMLGBlockWrapper(boolean controlFlowState) {
+        super(MappedClasses.Za);
+        this.waterField = ((MappingFieldBuilder)((MappingFieldBuilder)this.fieldBuilder("WATER", MappedClasses.W).setTypeForVersion(ForgeVersion.MC_1_20_6.n(), MappedClasses.qC)).setStaticMember(true)).buildField();
+        this.lavaField = ((MappingFieldBuilder)((MappingFieldBuilder)this.fieldBuilder("LAVA", MappedClasses.W).setTypeForVersion(ForgeVersion.MC_1_20_6.n(), MappedClasses.qC)).setStaticMember(true)).buildField();
+        if (!controlFlowState) {
+            GuiComponent.setLegacyComponentState(new GuiComponent[5]);
+        }
+    }
+
+    private Object readWater() {
+        return this.waterField.getObject(null);
+    }
+
+    public static Object getWater(MMLGBlockWrapper mapping) {
+        return mapping.readWater();
+    }
+}
+

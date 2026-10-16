@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light"><meta name="theme-color" content="#ffffff">
+  <title>unknown</title>
+  <link rel="icon" href="/admin/assets/unknown-logo.png" type="image/png">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css">
+  <script src="/admin/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <div id="login" class="login-shell">
+    <div class="login-art"><img src="/admin/assets/unknown-logo.png" alt="unknown"><span>UNKNOWN.</span><p>ADMINISTRAÇÃO</p></div>
+    <main class="login-content"><div class="wordmark"><img src="/admin/assets/unknown-logo.png" alt="">unknown</div>
+      <div class="login-form"><p class="eyebrow">ACESSO ADMINISTRATIVO</p><h1>Painel<br>unknown.</h1><p class="muted">Licenças, usuários e atividade.<br>Gestão em um só lugar.</p>
+      <form id="login-form"><label for="access-key">Chave de acesso</label><input id="access-key" name="access-key" type="password" autocomplete="off" placeholder="Chave de administrador" required><div id="login-otp-wrap" class="mfa-field" hidden><label for="login-otp">Google Authenticator ou código de recuperação</label><input id="login-otp" name="login-otp" autocomplete="one-time-code" maxlength="16" pattern="([0-9]{6}|[A-Za-z2-7-]{13,16})" placeholder="Código de 6 dígitos"></div><button class="button primary" type="submit">Entrar no painel <span aria-hidden="true">↗</span></button><p id="login-error" class="form-error" role="alert"></p></form>
+      <p class="login-note">Acesso reservado à administração.</p></div><small class="login-bottom">unknown © <span id="year"></span></small>
+    </main>
+  </div>
+  <div id="mfa-setup" class="login-shell" hidden>
+    <div class="login-art"><img src="/admin/assets/unknown-logo.png" alt="unknown"><span>UNKNOWN.</span><p>ADMINISTRAÇÃO</p></div>
+    <main class="login-content"><div class="wordmark"><img src="/admin/assets/unknown-logo.png" alt="">unknown</div>
+      <div class="login-form"><p class="eyebrow">PRIMEIRO ACESSO</p><h1>Configure o<br>Authenticator.</h1><p class="muted">Escaneie o QR code no Google Authenticator e confirme com o código exibido no aplicativo.</p>
+        <img id="mfa-setup-qr" class="mfa-qr" alt="QR code para configurar o Google Authenticator">
+        <p class="mfa-manual">Não conseguiu escanear? Adicione esta chave manualmente:<br><code id="mfa-setup-secret"></code></p>
+        <form id="mfa-setup-form"><label for="mfa-setup-code">Código de confirmação</label><input id="mfa-setup-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="000000" required><button class="button primary" type="submit">Ativar e entrar <span aria-hidden="true">↗</span></button><p id="mfa-setup-error" class="form-error" role="alert"></p></form>
+        <button id="mfa-setup-cancel" class="button" type="button">Voltar</button>
+      </div><small class="login-bottom">unknown © <span class="mfa-year"></span></small>
+    </main>
+  </div>
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar" id="sidebar"><a class="wordmark" href="#overview"><img src="/admin/assets/unknown-logo.png" alt="">unknown</a>
+      <p class="nav-caption">WORKSPACE</p><nav id="navigation" aria-label="Navegação principal"></nav>
+      <div class="sidebar-bottom"><div class="connection"><i id="connection-dot"></i><div><strong id="connection-status">Conectando</strong><small id="sync-time">Carregando dados</small></div></div><button class="sidebar-account" id="account-button"><span class="avatar">A</span><span><strong id="admin-name">Admin</strong><small>Gerenciar acesso</small></span><span aria-hidden="true">↗</span></button></div>
+    </aside>
+    <main class="workspace"><div class="topbar"><button id="mobile-menu" class="icon-button" aria-label="Abrir navegação"></button><span class="topbar-name">unknown / <span id="breadcrumb">Visão geral</span></span><div class="topbar-right"><span class="topbar-tag">ADMIN</span><button id="refresh" class="icon-button" title="Atualizar dados" aria-label="Atualizar dados"></button><button id="logout" class="icon-button" title="Sair" aria-label="Sair"></button></div></div>
+      <header class="page-header"><div><p class="eyebrow" id="page-eyebrow">WORKSPACE EM TEMPO REAL</p><h1 id="page-title">Visão geral<span class="title-dot">.</span></h1><p class="page-description" id="page-description"></p></div><div id="page-actions" class="header-actions"></div></header>
+      <div id="page-error" class="page-error" role="alert" hidden></div><div id="content" aria-live="polite"></div>
+      <footer class="footer"><span>unknown / administration</span><span id="footer-time">—</span></footer>
+    </main>
+  </div>
+  <dialog id="modal"><div id="modal-content"></div></dialog>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

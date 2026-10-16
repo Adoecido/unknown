@@ -1,0 +1,41 @@
+// gradlew -I tools/verify-capes.gradle capeTextureProbe capeHookObfuscationProbe [-PcbPatch=...]
+allprojects {
+    afterEvaluate {
+        ['capeTextureFilterProbe': 'vegas.sony.module.render.CapeTextureFilterProbe',
+         'notificationTextProbe': 'vegas.sony.ui.font.FormattedTextWrappingProbe',
+         'panicProbe': 'vegas.sony.manager.PanicProbe'].each { taskName, className ->
+            tasks.register(taskName, JavaExec) {
+                dependsOn tasks.named('testClasses')
+                classpath = sourceSets.test.runtimeClasspath
+                mainClass = className
+            }
+            tasks.named('obfuscateStrings') { mustRunAfter tasks.named(taskName) }
+        }
+        tasks.register('capeTextureProbe', JavaExec) {
+            dependsOn tasks.named('testClasses')
+            classpath = sourceSets.test.runtimeClasspath
+            mainClass = 'vegas.sony.module.render.BundledCapeTextureProbe'
+            doFirst {
+                def diagnostics = layout.buildDirectory.dir('cape-probe').get().asFile
+                diagnostics.mkdirs()
+                systemProperty 'java.io.tmpdir', diagnostics.absolutePath
+            }
+        }
+        tasks.register('capeHookObfuscationProbe', JavaExec) {
+            dependsOn tasks.named('testClasses'), tasks.named('obfuscateClasses')
+            classpath = sourceSets.test.runtimeClasspath + sourceSets.obfuscate.runtimeClasspath
+            mainClass = 'vegas.sony.mapping.CapeHookObfuscationProbe'
+            if (project.hasProperty('cbPatch')) args project.property('cbPatch').toString()
+        }
+        tasks.register('chatCommandHookObfuscationProbe', JavaExec) {
+            dependsOn tasks.named('testClasses'), tasks.named('obfuscateClasses')
+            classpath = sourceSets.test.runtimeClasspath + sourceSets.obfuscate.runtimeClasspath
+            mainClass = 'vegas.sony.mapping.ChatCommandHookObfuscationProbe'
+            if (project.hasProperty('cbPatch')) args project.property('cbPatch').toString()
+        }
+        tasks.named('obfuscateStrings') {
+            mustRunAfter tasks.named('capeTextureProbe'), tasks.named('capeHookObfuscationProbe'),
+                    tasks.named('chatCommandHookObfuscationProbe')
+        }
+    }
+}
