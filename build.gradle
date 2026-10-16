@@ -104,6 +104,16 @@ tasks.withType(JavaCompile).configureEach {
     options.compilerArgs += ['-Xmaxerrs', '10000', '-Xdiags:verbose']
 }
 
+// Verification probes assert PRODUCTION gate behavior (fail closed without a
+// loader token, exactly-once backend calls). A persistent SV_DEV_OFFLINE=1 in
+// the developer's environment takes the local-dev offline path instead and
+// fails every probe, so scrub it from forked probe JVMs. This only affects
+// the probe processes; the developer's shell and the shipped artifacts keep
+// their own environment untouched.
+tasks.withType(JavaExec).configureEach {
+    environment('SV_DEV_OFFLINE', '')
+}
+
 // Probe tests use sun.misc.Unsafe to instantiate isolated mapping fixtures.
 // javac's --release view intentionally hides that JDK-internal compatibility
 // API, so compile tests against the running JDK while the product classes keep
